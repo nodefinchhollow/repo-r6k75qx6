@@ -9,6 +9,7 @@ data class ProxyState(
     val running: Boolean = false,
     val port: Int = ProxyConfig.DEFAULT_PORT,
     val authEnabled: Boolean = false,
+    val vpnActive: Boolean = false,
     val error: String? = null,
 )
 

@@ -5,7 +5,6 @@ import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
 import java.net.InetAddress
-import java.net.InetSocketAddress
 import java.net.Socket
 
 /**
@@ -15,7 +14,10 @@ import java.net.Socket
  * Hostnames are resolved on the device, so DNS queries travel through the
  * phone's VPN tunnel together with the forwarded traffic.
  */
-class Socks5Handler(private val config: ProxyConfig) {
+class Socks5Handler(
+    private val config: ProxyConfig,
+    private val upstream: UpstreamConnector,
+) {
 
     fun handle(client: Socket, input: InputStream, output: OutputStream) {
         val data = DataInputStream(input)
@@ -75,17 +77,16 @@ class Socks5Handler(private val config: ProxyConfig) {
             return
         }
 
-        val upstream: Socket
+        val upstreamSocket: Socket
         try {
-            upstream = Socket()
-            upstream.connect(InetSocketAddress(host, port), CONNECT_TIMEOUT_MS)
+            upstreamSocket = upstream.connect(host, port, CONNECT_TIMEOUT_MS)
         } catch (e: IOException) {
             reply(output, replyCodeFor(e))
             return
         }
 
         reply(output, REP_SUCCEEDED)
-        Relay.pipe(client, upstream)
+        Relay.pipe(client, upstreamSocket)
     }
 
     private fun authenticate(data: DataInputStream, output: OutputStream): Boolean {

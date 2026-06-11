@@ -14,6 +14,7 @@ import com.phoneproxy.app.proxy.ProxyConfig
 import com.phoneproxy.app.proxy.ProxyController
 import com.phoneproxy.app.proxy.ProxyServer
 import com.phoneproxy.app.proxy.ProxyState
+import com.phoneproxy.app.proxy.UpstreamConnector
 
 /**
  * Foreground service that owns the running [ProxyServer]. Running in the
@@ -24,6 +25,7 @@ class ProxyService : Service() {
 
     private var server: ProxyServer? = null
     private var currentConfig: ProxyConfig? = null
+    private var upstream: UpstreamConnector? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -47,11 +49,14 @@ class ProxyService : Service() {
         val password = intent?.getStringExtra(EXTRA_PASSWORD)?.takeIf { it.isNotEmpty() }
         val config = ProxyConfig(port = port, username = username, password = password)
 
-        val newServer = ProxyServer(config)
+        val connector = UpstreamConnector(applicationContext)
+        connector.start()
+        val newServer = ProxyServer(config, connector)
         try {
             newServer.start()
         } catch (e: Exception) {
             Log.e(TAG, "failed to start proxy", e)
+            connector.stop()
             ProxyController.update(
                 ProxyState(
                     running = false,
@@ -66,15 +71,24 @@ class ProxyService : Service() {
 
         server = newServer
         currentConfig = config
+        upstream = connector
         startForeground(NOTIFICATION_ID, buildNotification(config))
         ProxyController.update(
-            ProxyState(running = true, port = port, authEnabled = config.authEnabled, error = null)
+            ProxyState(
+                running = true,
+                port = port,
+                authEnabled = config.authEnabled,
+                vpnActive = connector.vpnActive,
+                error = null,
+            )
         )
     }
 
     private fun stopProxy() {
         server?.stop()
         server = null
+        upstream?.stop()
+        upstream = null
         val port = currentConfig?.port ?: ProxyConfig.DEFAULT_PORT
         val authEnabled = currentConfig?.authEnabled ?: false
         currentConfig = null
@@ -88,6 +102,8 @@ class ProxyService : Service() {
     override fun onDestroy() {
         server?.stop()
         server = null
+        upstream?.stop()
+        upstream = null
         super.onDestroy()
     }
 

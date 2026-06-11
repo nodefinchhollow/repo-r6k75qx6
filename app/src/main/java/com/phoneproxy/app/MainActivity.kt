@@ -25,6 +25,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -77,8 +78,10 @@ private fun ProxyScreen() {
     var authEnabled by rememberSaveable { mutableStateOf(false) }
     var username by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }
+    var refreshKey by remember { mutableStateOf(0) }
 
-    val addresses = remember(state.running) { NetworkUtils.localAddresses() }
+    val addresses = remember(state.running, refreshKey) { NetworkUtils.localAddresses() }
+    val vpnActive = remember(state.running, refreshKey) { NetworkUtils.isVpnActive(context) }
 
     Column(
         modifier = Modifier
@@ -94,7 +97,9 @@ private fun ProxyScreen() {
             style = MaterialTheme.typography.bodyMedium,
         )
 
-        StatusCard(state.running, state.port, state.authEnabled, state.error)
+        StatusCard(state.running, state.port, state.authEnabled, vpnActive, state.error)
+
+        VpnGuidanceCard(vpnActive)
 
         OutlinedTextField(
             value = portText,
@@ -165,14 +170,22 @@ private fun ProxyScreen() {
             ) { Text("Start proxy") }
         }
 
-        if (state.running && addresses.isNotEmpty()) {
-            AddressCard(addresses, state.port)
-        }
+        AddressCard(
+            addresses = addresses,
+            port = portText.toIntOrNull() ?: state.port,
+            onRefresh = { refreshKey++ },
+        )
     }
 }
 
 @Composable
-private fun StatusCard(running: Boolean, port: Int, authEnabled: Boolean, error: String?) {
+private fun StatusCard(
+    running: Boolean,
+    port: Int,
+    authEnabled: Boolean,
+    vpnActive: Boolean,
+    error: String?,
+) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
@@ -188,6 +201,20 @@ private fun StatusCard(running: Boolean, port: Int, authEnabled: Boolean, error:
                 Spacer(Modifier.height(4.dp))
                 Text("Port $port" + if (authEnabled) " · auth required" else "")
             }
+            Spacer(Modifier.height(4.dp))
+            Text(
+                if (vpnActive) {
+                    "VPN detected · upstream is routed through the VPN"
+                } else {
+                    "No VPN detected · upstream uses the normal connection"
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = if (vpnActive) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+            )
             if (error != null) {
                 Spacer(Modifier.height(4.dp))
                 Text("Error: $error", color = MaterialTheme.colorScheme.error)
@@ -197,23 +224,72 @@ private fun StatusCard(running: Boolean, port: Int, authEnabled: Boolean, error:
 }
 
 @Composable
+private fun VpnGuidanceCard(vpnActive: Boolean) {
+    if (!vpnActive) return
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text("VPN is on", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Android sends tethered-client replies into the VPN by default, which " +
+                    "makes the proxy unreachable from the PC. In your VPN app do ONE of:",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "• Preferred: enable “Allow LAN / local network” (or exclude the local " +
+                    "subnet, e.g. 192.168.42.0/24 and 192.168.43.0/24, from the tunnel). " +
+                    "Keep Phone Proxy INSIDE the VPN.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "• Or: add Phone Proxy to the VPN’s excluded/split-tunnel apps. This app " +
+                    "then forces its upstream sockets back through the VPN automatically.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+    }
+}
+
+@Composable
 private fun AddressCard(
     addresses: List<com.phoneproxy.app.proxy.LocalAddress>,
     port: Int,
+    onRefresh: () -> Unit,
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text("Configure your PC to use", style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(8.dp))
-            addresses.forEach { addr ->
-                val tag = if (addr.isLikelyTether) " (tether: ${addr.interfaceName})" else " (${addr.interfaceName})"
-                Text("${addr.ip}:$port$tag")
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Configure your PC to use", style = MaterialTheme.typography.titleMedium)
+                TextButton(onClick = onRefresh) { Text("Refresh") }
             }
             Spacer(Modifier.height(8.dp))
-            Text(
-                "Use it as both a SOCKS5 and an HTTP/HTTPS proxy.",
-                style = MaterialTheme.typography.bodySmall,
-            )
+            if (addresses.isEmpty()) {
+                Text(
+                    "No local IPv4 address found. Connect USB tethering or a Wi-Fi " +
+                        "hotspot, then tap Refresh.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            } else {
+                addresses.forEach { addr ->
+                    val tag = if (addr.isLikelyTether) {
+                        " (tether: ${addr.interfaceName})"
+                    } else {
+                        " (${addr.interfaceName})"
+                    }
+                    Text("${addr.ip}:$port$tag")
+                }
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Use it as both a SOCKS5 and an HTTP/HTTPS proxy.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
         }
     }
 }

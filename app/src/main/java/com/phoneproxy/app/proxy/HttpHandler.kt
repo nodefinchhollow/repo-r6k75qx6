@@ -5,7 +5,6 @@ import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
-import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.URI
 
@@ -19,7 +18,10 @@ import java.net.URI
  * Optional proxy authentication uses the standard `Proxy-Authorization: Basic`
  * scheme (RFC 7235).
  */
-class HttpHandler(private val config: ProxyConfig) {
+class HttpHandler(
+    private val config: ProxyConfig,
+    private val upstream: UpstreamConnector,
+) {
 
     fun handle(client: Socket, input: InputStream, output: OutputStream) {
         val requestLine = readLine(input) ?: return
@@ -62,13 +64,13 @@ class HttpHandler(private val config: ProxyConfig) {
             writeError(output, "400 Bad Request")
             return
         }
-        val upstream = openUpstream(host, port) ?: run {
+        val upstreamSocket = openUpstream(host, port) ?: run {
             writeError(output, "502 Bad Gateway")
             return
         }
         output.write("HTTP/1.1 200 Connection Established\r\n\r\n".toByteArray(Charsets.US_ASCII))
         output.flush()
-        Relay.pipe(client, upstream)
+        Relay.pipe(client, upstreamSocket)
     }
 
     private fun handleForward(
@@ -91,7 +93,7 @@ class HttpHandler(private val config: ProxyConfig) {
             if (!uri.rawQuery.isNullOrEmpty()) append("?").append(uri.rawQuery)
         }
 
-        val upstream = openUpstream(host, port) ?: run {
+        val upstreamSocket = openUpstream(host, port) ?: run {
             writeError(output, "502 Bad Gateway")
             return
         }
@@ -116,20 +118,20 @@ class HttpHandler(private val config: ProxyConfig) {
         rebuilt.append("\r\n")
 
         try {
-            val upstreamOut = upstream.getOutputStream()
+            val upstreamOut = upstreamSocket.getOutputStream()
             upstreamOut.write(rebuilt.toString().toByteArray(Charsets.US_ASCII))
             upstreamOut.flush()
         } catch (_: IOException) {
-            Relay.closeQuietly(upstream)
+            Relay.closeQuietly(upstreamSocket)
             writeError(output, "502 Bad Gateway")
             return
         }
 
-        Relay.pipe(client, upstream)
+        Relay.pipe(client, upstreamSocket)
     }
 
     private fun openUpstream(host: String, port: Int): Socket? = try {
-        Socket().apply { connect(InetSocketAddress(host, port), CONNECT_TIMEOUT_MS) }
+        upstream.connect(host, port, CONNECT_TIMEOUT_MS)
     } catch (_: IOException) {
         null
     }

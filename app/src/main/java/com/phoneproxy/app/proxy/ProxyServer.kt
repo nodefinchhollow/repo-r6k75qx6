@@ -15,10 +15,15 @@ import java.util.concurrent.TimeUnit
  * detecting the protocol from the first byte of each connection (0x05 -> SOCKS5,
  * anything else -> HTTP).
  *
- * Outbound sockets use the device's default network, so when a VPN is active on
- * the phone the forwarded traffic is routed through the VPN tunnel.
+ * Outbound (upstream) sockets are opened through [UpstreamConnector], which
+ * binds them to the phone's VPN network when one is active, so forwarded
+ * traffic and DNS stay inside the VPN tunnel even if this app is excluded from
+ * the VPN to remain reachable from the tethered PC.
  */
-class ProxyServer(private val config: ProxyConfig) {
+class ProxyServer(
+    private val config: ProxyConfig,
+    private val upstream: UpstreamConnector,
+) {
 
     @Volatile
     private var serverSocket: ServerSocket? = null
@@ -29,8 +34,8 @@ class ProxyServer(private val config: ProxyConfig) {
     private val executor: ThreadPoolExecutor =
         Executors.newCachedThreadPool() as ThreadPoolExecutor
 
-    private val socks5 = Socks5Handler(config)
-    private val http = HttpHandler(config)
+    private val socks5 = Socks5Handler(config, upstream)
+    private val http = HttpHandler(config, upstream)
 
     /** Binds the listening socket. Throws [IOException] if the port is unavailable. */
     fun start() {

@@ -1,5 +1,8 @@
 package com.phoneproxy.app.proxy
 
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import java.net.Inet4Address
 import java.net.NetworkInterface
 
@@ -34,5 +37,14 @@ object NetworkUtils {
             }
         }
         return result.sortedByDescending { it.isLikelyTether }
+    }
+
+    /** True if a VPN is currently active on the device. */
+    fun isVpnActive(context: Context): Boolean {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            ?: return false
+        return cm.allNetworks.any { network ->
+            cm.getNetworkCapabilities(network)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
+        }
     }
 }

@@ -31,6 +31,32 @@ PC (SOCKS5/HTTP client) --USB/Wi-Fi tether--> [Phone Proxy app] --VPN tunnel--> 
    an **HTTP/HTTPS** proxy. The same port serves both — the protocol is detected
    automatically from each connection.
 
+### Making it work while the VPN is on
+
+This is the part that trips most setups up. When a full-tunnel VPN is active,
+Android binds *all* of the proxy app's traffic to the VPN by UID — including the
+**reply packets to the tethered PC**. Those replies get sent into the tunnel
+instead of back to the PC, so the PC cannot even reach the proxy. (With the VPN
+off everything works, because there is no tunnel to capture the replies.)
+
+The local link to the PC must bypass the VPN while internet-bound traffic still
+goes through it. In your VPN app, do **one** of the following:
+
+- **Preferred — allow local/LAN traffic.** Enable the VPN's *"Allow LAN" /
+  "Local network" / "Bypass for local addresses"* option, or add the tether
+  subnets (`192.168.42.0/24` for USB, `192.168.43.0/24` for hotspot) to the
+  VPN's excluded routes. Keep Phone Proxy **inside** the VPN. The PC can now
+  reach the proxy, and the proxy's internet traffic still goes through the VPN.
+- **Or — exclude Phone Proxy from the VPN** (split-tunnel / "disallowed apps").
+  This makes the proxy reachable, but then the app's *upstream* traffic would
+  normally skip the VPN too. Phone Proxy handles this: it detects the active VPN
+  and **explicitly binds its upstream sockets (and DNS) to the VPN network**, so
+  internet traffic is forced back through the tunnel. The app shows
+  *"VPN detected — upstream is routed through the VPN"* when this is in effect.
+
+Verify from the PC with `curl --socks5-hostname <addr> https://ifconfig.me` — it
+should print your VPN's exit IP, not your ISP's.
+
 ### Example PC configuration
 
 SOCKS5 with curl:
